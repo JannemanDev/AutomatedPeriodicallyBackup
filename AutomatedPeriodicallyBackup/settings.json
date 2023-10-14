@@ -1,13 +1,13 @@
 {
-  "sourceDirectories": [
+  "SourceFolders": [
     "C:\\temp\\AutomatedPeriodicallyBackup\\Input1",
     "C:\\temp\\AutomatedPeriodicallyBackup\\Input2"
   ],
-  "excludeDirectories": [
+  "ExcludedFolders": [
     "C:\\temp\\AutomatedPeriodicallyBackup\\Input2\\Lingo\\woordenlijsten"
   ],
-  "zipFolderPath": "C:\\temp\\AutomatedPeriodicallyBackup\\Output",
-  "remoteNASFolder": "C:\\temp\\AutomatedPeriodicallyBackup\\RemoteNAS",
-  "createEmptyFileWhenBackupNotChanged": true,
-  "addSuffixToFileWhenBackupNotChanged": ""
+  "LocalBackupFolder": "C:\\temp\\AutomatedPeriodicallyBackup\\Output",
+  "RemoteBackupFolder": "C:\\temp\\AutomatedPeriodicallyBackup\\RemoteNAS",
+  "BackupNotChangedStrategy": "AlwaysBackup",
+  "AddSuffixToFileWhenBackupNotChanged": ""
 }

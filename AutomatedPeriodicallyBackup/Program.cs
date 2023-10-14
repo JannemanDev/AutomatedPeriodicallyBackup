@@ -1,17 +1,24 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.IO.Compression;
+﻿using System.IO.Compression;
 using K4os.Compression.LZ4;
 using K4os.Compression.LZ4.Streams;
 using K4os.Hash.xxHash;
 using Newtonsoft.Json;
-using System.Threading;
 using System.Text;
-//using K4os.Compression.LZ4.Legacy;
+using static Program;
+using AutomatedPeriodicallyBackup;
 
 partial class Program
 {
+    //Todo:
+    //-return previous different backup if available -> checksum
+
+    //-prefix/name of backups
+    //-frequency of backups
+    //-endless loop until Escape
+    //-SeriLog
+
+    static Settings settings;
+
     static void Main(string[] args)
     {
         string settingsFile = "settings.json"; // Default settings file
@@ -23,97 +30,98 @@ partial class Program
         }
 
         // Read settings from the specified settings file
-        Settings settings = ReadSettings(settingsFile);
+        settings = ReadSettings(settingsFile);
 
-        List<string> sourceDirectories = settings.SourceDirectories;
-        List<string> excludeDirectories = settings.ExcludeDirectories;
-        string zipFolderPath = settings.ZipFolderPath;
-        string remoteNASFolder = settings.RemoteNASFolder;
-        bool createEmptyFileWhenBackupNotChanged = settings.CreateEmptyFileWhenBackupNotChanged;
-
-        // Use a named Mutex to ensure only one instance runs with the same zipFolderPath or remoteNASFolder
-        bool createdNew, alreadyRunning;
-        Mutex mutex1 = new Mutex(true, CalculateChecksum(zipFolderPath).ToString(), out createdNew);
-        alreadyRunning = !createdNew;
-        Mutex mutex2 = new Mutex(true, CalculateChecksum(remoteNASFolder).ToString(), out createdNew);
-        alreadyRunning = alreadyRunning || !createdNew;
-
-        if (alreadyRunning)
+        using (ProgramInstanceChecker programInstanceChecker = new ProgramInstanceChecker(CalculateChecksum(settings.LocalBackupFolder).ToString(), CalculateChecksum(settings.RemoteBackupFolder).ToString()))
         {
-            Console.WriteLine($"Another instance is already running with the same zipFolderPath {zipFolderPath} and/or remoteNASFolder {remoteNASFolder}.");
-            return;
-        }
-
-        try
-        {
-            // Before creating new zip backup first rename existing backups based on their creation date
-            RenameExistingBackups(zipFolderPath, defaultSearchPattern);
-
-            // Create a new combined backup with the number 0
-            string zipPath = Path.Combine(zipFolderPath, "backup0.zip");
-            ZipDirectories(sourceDirectories, zipPath, excludeDirectories);
-
-            // Calculate the checksum of the new backup
-            ulong newChecksum = CalculateChecksumFromFile(zipPath);
-
-            // Calculate the checksum of any existing previous backup which was different
-            string backup1Path = Path.Combine(zipFolderPath, "backup1.zip");
-            if (File.Exists(backup1Path))
+            if (!programInstanceChecker.IsRunning)
             {
-                ulong existingChecksum = CalculateChecksumFromFile(backup1Path);
+                // Before creating new zip backup, first rename existing backups based on their creation date
+                RenameExistingBackups(settings.LocalBackupFolder, defaultSearchPattern);
 
-                // Compare checksums and create an empty backup if they match
-                if (newChecksum == existingChecksum && createEmptyFileWhenBackupNotChanged)
+                // Create a new backup 0
+                string newBackupFilename = Path.Combine(settings.LocalBackupFolder, "backup0.zip");
+                ZipDirectories(settings.SourceFolders, newBackupFilename, settings.ExcludedFolders);
+
+                // Calculate the checksum of the new backup 0
+                ulong checksumNewBackup = CalculateChecksumFromFile(newBackupFilename);
+
+                // Calculate the checksum of any existing previous backup 1 which was different
+                string previousBackupFilename = Path.Combine(settings.LocalBackupFolder, "backup1.zip");
+                if (File.Exists(previousBackupFilename))
                 {
-                    // Replace backup 0 with an empty file
-                    File.Create(zipPath).Dispose();
-                    Console.WriteLine("Checksums match. Created an empty backup with number 0.");
-                }
-                else
-                {
-                    Console.WriteLine("Combined directories successfully zipped to " + zipPath);
-                }
-            }
+                    ulong checksumPreviousBackup = CalculateChecksumFromFile(previousBackupFilename);
 
-            // Check if remoteNASFolder is available
-            if (!string.IsNullOrEmpty(remoteNASFolder) && Directory.Exists(remoteNASFolder))
-            {
-                string remoteBackup0Path = Path.Combine(remoteNASFolder, "backup0.zip");
-                if (File.Exists(remoteBackup0Path))
-                {
-                    // Compare the checksum of the oldest zipfile in the local folder with remote NAS backup 0
-                    string oldestZipFile = GetOldestFile(zipFolderPath, defaultSearchPattern);
-
-                    ulong oldestZipChecksum = CalculateChecksumFromFile(oldestZipFile);
-                    ulong remoteBackup0Checksum = CalculateChecksumFromFile(remoteBackup0Path);
-
-                    if (oldestZipChecksum == remoteBackup0Checksum)
+                    // Compare checksums and create an empty backup if they match
+                    if (checksumNewBackup == checksumPreviousBackup)
                     {
-                        // Create an empty zipfile if the checksums match
-                        File.Create(oldestZipFile).Dispose();
-                        Console.WriteLine("Checksums match. Created an empty backup for the oldest file.");
+                        Console.WriteLine("Checksums match");
+
+                        switch (settings.BackupNotChangedStrategy)
+                        {
+                            case BackupNotChangedStrategy.AlwaysBackup:
+                                //do nothing and keep backup
+                                break;
+
+                            case BackupNotChangedStrategy.Skip:
+                                File.Delete(newBackupFilename);
+                                break;
+
+                            case BackupNotChangedStrategy.CreateEmptyFile:
+                            case BackupNotChangedStrategy.CreateEmptyFileWithSuffix:
+                                CreateEmptyBackup(newBackupFilename, settings.SuffixWhenBackupNotChanged);
+                                break;
+                        }
                     }
                 }
 
-                // Get all zip files from both local and remote folders
-                List<string> allZipFiles = GetFilesFromFolders(defaultSearchPattern, zipFolderPath, remoteNASFolder);
+                // Check if RemoteBackupFolder is available
+                if (!string.IsNullOrEmpty(settings.RemoteBackupFolder) && Directory.Exists(settings.RemoteBackupFolder))
+                {
+                    string remoteBackup0Path = Path.Combine(settings.RemoteBackupFolder, "backup0.zip");
+                    if (File.Exists(remoteBackup0Path))
+                    {
+                        // Compare the checksum of the oldest zipfile in the local folder with remote NAS backup 0
+                        string oldestZipFile = GetOldestFile(settings.LocalBackupFolder, defaultSearchPattern);
 
-                SortFilesOnDate(allZipFiles);
-                RenumberFiles(allZipFiles);
+                        ulong oldestZipChecksum = CalculateChecksumFromFile(oldestZipFile);
+                        ulong remoteBackup0Checksum = CalculateChecksumFromFile(remoteBackup0Path);
 
-                // Move all zip files from the local folder to the remote NAS folder
-                MoveFilesToFolder(GetFilesFromFolders(defaultSearchPattern, zipFolderPath), remoteNASFolder);
+                        if (oldestZipChecksum == remoteBackup0Checksum)
+                        {
+                            // Create an empty zipfile if the checksums match
+                            File.Create(oldestZipFile).Dispose();
+                            Console.WriteLine("Checksums match. Created an empty backup for the oldest file.");
+                        }
+                    }
+
+                    // Get all zip files from both local and remote folders
+                    List<string> allZipFiles = GetFilesFromFolders(defaultSearchPattern, settings.LocalBackupFolder, settings.RemoteBackupFolder);
+
+                    SortFilesOnDate(allZipFiles, true);
+                    RenumberFiles(allZipFiles);
+
+                    // Move all zip files from the local folder to the remote NAS folder
+                    MoveFilesToFolder(GetFilesFromFolders(defaultSearchPattern, settings.LocalBackupFolder), settings.RemoteBackupFolder);
+                }
+                else
+                {
+                    Console.WriteLine("Remote NAS folder is not available. Skipping remote operations.");
+                }
             }
             else
             {
-                Console.WriteLine("Remote NAS folder is not available. Skipping remote operations.");
+                Console.WriteLine($"Another instance is already running with the same zipFolderPath {settings.LocalBackupFolder} and/or remoteNASFolder {settings.RemoteBackupFolder}.");
             }
         }
-        finally
+    }
+
+    static void CreateEmptyBackup(string filename, string suffix)
+    {
+        File.Create(filename).Dispose();
+        if (settings.BackupNotChangedStrategy == BackupNotChangedStrategy.CreateEmptyFileWithSuffix)
         {
-            // Release the Mutexes when done
-            mutex1.ReleaseMutex();
-            mutex2.ReleaseMutex();
+            RenameFile(filename, AddSuffixToFilename(filename, suffix));
         }
     }
 
@@ -135,23 +143,13 @@ partial class Program
     static void RenameExistingBackups(string folderPath, string searchPattern)
     {
         // Get a list of existing backup files in the folder
-        string[] backupFiles = Directory.GetFiles(folderPath, searchPattern)
-            .OrderByDescending(file => GetBackupCreationDate(file))
-            .ToArray();
+        List<string> backupFiles = Directory.GetFiles(folderPath, searchPattern)
+            .ToList();
 
-        // Rename existing backups with numbers 1, 2, 3, etc.
-        // Start with oldest
-        for (int i = backupFiles.Length-1; i >= 0; i--)
-        {
-            string newBackupFilename = Path.Combine(folderPath, "backup" + (i + 1) + ".zip");
-            string oldBackupFilename = backupFiles[i];
-            File.Move(oldBackupFilename, newBackupFilename);
-        }
-    }
+        SortFilesOnDate(backupFiles, true);
 
-    static DateTime GetBackupCreationDate(string filePath)
-    {
-        return File.GetCreationTime(filePath);
+        //renumber starting with oldest
+        RenumberFiles(backupFiles);
     }
 
     static ulong CalculateChecksum(string input)
@@ -212,19 +210,24 @@ partial class Program
 
     static void RenumberFiles(List<string> files)
     {
-        //rename starting with oldest
+        int newNr = files.Count;
         for (int i = files.Count - 1; i >= 0; i--)
         {
             string oldFileName = files[i];
-            string newFileName = Path.Combine(Path.GetDirectoryName(oldFileName), $"backup{i}.zip");
+            string oldFolder = Path.GetDirectoryName(oldFileName);
+            string newFileName = Path.Combine(oldFolder, $"backup{newNr}.zip");
+
             RenameFile(oldFileName, newFileName);
+
+            newNr--;
         }
     }
 
-    static void SortFilesOnDate(List<string> files)
+    static void SortFilesOnDate(List<string> files, bool sortAscending)
     {
-        //sort zipfiles from newest to oldest
-        files.Sort((file1, file2) => File.GetLastWriteTime(file1).CompareTo(File.GetLastWriteTime(file2)));
+        files.Sort((file1, file2) => sortAscending
+            ? File.GetCreationTime(file1).CompareTo(File.GetCreationTime(file2))
+            : File.GetCreationTime(file2).CompareTo(File.GetCreationTime(file1)));
     }
 
     static void MoveFilesToFolder(List<string> zipFiles, string newFolder)
@@ -275,4 +278,17 @@ partial class Program
             }
         }
     }
+
+    static string AddSuffixToFilename(string filePath, string suffix)
+    {
+        string directory = Path.GetDirectoryName(filePath);
+        string fileName = Path.GetFileNameWithoutExtension(filePath);
+        string fileExtension = Path.GetExtension(filePath);
+
+        // Combine the directory, filename with suffix, and extension to form the new path
+        string newFilePath = Path.Combine(directory, $"{fileName}{suffix}{fileExtension}");
+
+        return newFilePath;
+    }
+
 }

@@ -1,12 +1,24 @@
-﻿partial class Program
+﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
+
+partial class Program
 {
+    public enum BackupNotChangedStrategy
+    {
+        AlwaysBackup,
+        Skip,
+        CreateEmptyFile,
+        CreateEmptyFileWithSuffix,
+    }
+
     public class Settings
     {
-        public List<string> SourceDirectories { get; set; }
-        public List<string> ExcludeDirectories { get; set; }
-        public string ZipFolderPath { get; set; }
-        public string RemoteNASFolder { get; set; }
-        public bool CreateEmptyFileWhenBackupNotChanged { get; set; }
-        public string? AddSuffixToFileWhenBackupNotChanged { get; set; }
+        public List<string> SourceFolders { get; init; }
+        public List<string> ExcludedFolders { get; init; }
+        public string LocalBackupFolder { get; init; }
+        public string RemoteBackupFolder { get; init; }
+        [JsonConverter(typeof(StringEnumConverter))] 
+        public BackupNotChangedStrategy BackupNotChangedStrategy { get; init; }
+        public string SuffixWhenBackupNotChanged { get; init; }
     }
 }

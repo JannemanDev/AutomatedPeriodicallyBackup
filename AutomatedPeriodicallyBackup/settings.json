@@ -1,0 +1,13 @@
+{
+  "sourceDirectories": [
+    "C:\\temp\\AutomatedPeriodicallyBackup\\Input1",
+    "C:\\temp\\AutomatedPeriodicallyBackup\\Input2"
+  ],
+  "excludeDirectories": [
+    "C:\\temp\\AutomatedPeriodicallyBackup\\Input2\\Lingo\\woordenlijsten"
+  ],
+  "zipFolderPath": "C:\\temp\\AutomatedPeriodicallyBackup\\Output",
+  "remoteNASFolder": "C:\\temp\\AutomatedPeriodicallyBackup\\RemoteNAS",
+  "createEmptyFileWhenBackupNotChanged": true,
+  "addSuffixToFileWhenBackupNotChanged": ""
+}

@@ -1,13 +1,37 @@
 {
+  "DefaultFolderSettings": {
+    "FilePattern": "*",
+    "IncludeSubFolders": "true",
+    "MinFileSize": 0,
+    "MaxFileSize": 9223372036854775807,
+    "CompressionLevel": "Optimal"
+  },
   "SourceFolders": [
-    "C:\\temp\\AutomatedPeriodicallyBackup\\Input1",
-    "C:\\temp\\AutomatedPeriodicallyBackup\\Input2"
+    {
+      "Folder": "C:\\temp\\AutomatedPeriodicallyBackup\\Input2"
+    },
+    {
+      "Folder": "C:\\temp\\AutomatedPeriodicallyBackup\\Input4"
+    },
+    {
+      "Folder": "C:\\temp\\AutomatedPeriodicallyBackup\\Input5",
+      "FilePattern": "*.xlsx",
+      "IncludeSubFolders": "false",
+      "MinFileSize": 0,
+      "MaxFileSize": 25000,
+      "CompressionLevel": "NoCompression"
+    }
   ],
   "ExcludedFolders": [
-    "C:\\temp\\AutomatedPeriodicallyBackup\\Input2\\Lingo\\woordenlijsten"
+    {
+      "Folder": "C:\\temp\\AutomatedPeriodicallyBackup\\Input2\\Lingo\\woordenlijsten"
+    }
   ],
   "LocalBackupFolder": "C:\\temp\\AutomatedPeriodicallyBackup\\Output",
   "RemoteBackupFolder": "C:\\temp\\AutomatedPeriodicallyBackup\\RemoteNAS",
-  "BackupNotChangedStrategy": "AlwaysBackup",
-  "AddSuffixToFileWhenBackupNotChanged": ""
+  "BackupNotChangedStrategy": "Keep",
+  "PrefixBackupFilename": "backup",
+  "SuffixWhenBackupNotChanged": "-same",
+  "PreserveFolderStrategy": "FullPath",
+  "BackupFileInUseStrategy": "Test"
 }

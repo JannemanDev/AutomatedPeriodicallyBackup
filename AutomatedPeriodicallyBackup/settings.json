@@ -33,5 +33,27 @@
   "PrefixBackupFilename": "backup",
   "SuffixWhenBackupNotChanged": "-same",
   "PreserveFolderStrategy": "FullPath",
-  "BackupFileInUseStrategy": "Test"
+  "BackupFileInUseStrategy": "TryByMakingCopy",
+  "Serilog": {
+    "MinimumLevel": "Information",
+    "WriteTo": [
+      {
+        "Name": "Console",
+        "Args": {
+          "outputTemplate": "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}",
+          "restrictedToMinimumLevel": "Information"
+        }
+      },
+      {
+        "Name": "File",
+        "Args": {
+          "path": "logs/log.txt",
+          "rollingInterval": "Day",
+          "outputTemplate": "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}",
+          "retainedFileCountLimit": 7,
+          "restrictedToMinimumLevel": "Information"
+        }
+      }
+    ]
+  }
 }

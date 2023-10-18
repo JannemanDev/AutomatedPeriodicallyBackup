@@ -1,15 +1,15 @@
 ﻿using System.IO.Compression;
-using K4os.Compression.LZ4;
-using K4os.Compression.LZ4.Streams;
 using K4os.Hash.xxHash;
 using Newtonsoft.Json;
 using System.Text;
 using static Program;
 using AutomatedPeriodicallyBackup;
 using RegExtract;
-using System.IO;
-using Microsoft.VisualBasic;
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Configuration;
+using Serilog;
+using CommandLine;
+using Serilog.Events;
 
 partial class Program
 {
@@ -27,10 +27,33 @@ partial class Program
     //-SeriLog
 
     static Settings settings;
+    static string version;
 
     static void Main(string[] args)
     {
-        string settingsFile = "settings.json"; // Default settings file
+        DefaultLogging();
+
+        var executingDir = AppContext.BaseDirectory;
+        Log.Information($"Executable is running from {executingDir}");
+
+        var compileTime = new DateTime(Builtin.CompileTime, DateTimeKind.Utc).ToLocalTime();
+        version = $"Automated Periodically Backup v1.0.0 - BuildDate {compileTime}";
+
+        Parser parser = new Parser(with =>
+        {
+            //with.EnableDashDash = false;
+            with.HelpWriter = Console.Error;
+            with.IgnoreUnknownArguments = false;
+            with.CaseSensitive = false; //only applies for parameters not values assigned to them
+                                        //with.ParsingCulture = CultureInfo.CurrentCulture;
+        });
+
+        ParserResult<Arguments> arguments;
+        arguments = parser.ParseArguments<Arguments>(args)
+            .WithParsed(RunOptions)
+            .WithNotParsed(HandleParseError);
+
+        string settingsFile = arguments.Value.SettingsFilename;
         string defaultSearchPattern = "*.zip";
 
         if (args.Length > 0)
@@ -40,6 +63,19 @@ partial class Program
 
         // Read settings from the specified settings file
         settings = ReadSettings(settingsFile);
+
+        // Build the configuration
+        var configuration = new ConfigurationBuilder()
+            .AddJsonFile("settings.json") // Provide the path to your JSON file
+            .Build();
+
+        // Configure Serilog using the configuration settings
+        Log.Logger = new LoggerConfiguration()
+            .ReadFrom.Configuration(configuration)
+            .CreateLogger();
+
+        // Now, you can use Serilog for logging
+        Log.Information("This is an information message.");
 
         using (ProgramInstanceChecker programInstanceChecker = new ProgramInstanceChecker(CalculateChecksum(settings.LocalBackupFolder).ToString(), CalculateChecksum(settings.RemoteBackupFolder).ToString()))
         {
@@ -72,14 +108,16 @@ partial class Program
                 }
                 else
                 {
-                    Console.WriteLine("Remote NAS folder is not available. Skipping remote operations.");
+                    Log.Warning("Remote NAS folder is not available. Skipping remote operations.");
                 }
             }
             else
             {
-                Console.WriteLine($"Another instance is already running with the same zipFolderPath {settings.LocalBackupFolder} and/or remoteNASFolder {settings.RemoteBackupFolder}.");
+                Log.Warning($"Another instance is already running with the same zipFolderPath {settings.LocalBackupFolder} and/or remoteNASFolder {settings.RemoteBackupFolder}.");
             }
         }
+
+        Log.CloseAndFlush();
     }
 
     //Will return empty string if no previous (complete) backup is found
@@ -105,8 +143,10 @@ partial class Program
 
             // Compare checksums and create an empty backup if they match
             if (checksumNewBackup == checksumPreviousBackup)
-            {
-                Console.WriteLine("Checksums match");
+            {   
+                Log.Information($"Checksums match of:");
+                Log.Information($" {newBackupFilename}");
+                Log.Information($" {previousBackupFilename}");
 
                 switch (settings.BackupNotChangedStrategy)
                 {
@@ -153,11 +193,11 @@ partial class Program
         }
         catch (JsonSerializationException ex)
         {
-            Console.WriteLine(GetEnumErrorDescription(ex));
+            Log.Error(GetEnumErrorDescription(ex));
         }
         catch (Exception e)
         {
-            Console.WriteLine("Error reading settings:\n" + e.Message);
+            Log.Error("Error reading settings:\n" + e.Message);
         }
 
         Environment.Exit(1);
@@ -171,7 +211,7 @@ partial class Program
         if (enumType != null)
         {
             string enumValues = string.Join(", ", Enum.GetNames(enumType));
-            return $"Error reading settings:\n{ex.Message}\nPossible values for {propertyName}: {enumValues}";
+            return $"Error reading JSON settings:\n{ex.Message}\nPossible values for {propertyName}: {enumValues}";
         }
 
         return $"Error reading settings:\n{ex.Message}";
@@ -442,5 +482,38 @@ partial class Program
         {
             return filename;
         }
+    }
+
+    static void RunOptions(Arguments opts)
+    {
+        LogInfoHeader(version, opts.AsJson());
+
+        //do some extra checks
+        if (!File.Exists(opts.SettingsFilename))
+        {
+            Log.Error($"Settings file {opts.SettingsFilename} NOT found!");
+            Environment.Exit(1);
+        }
+    }
+
+    static void LogInfoHeader(string version, string arguments)
+    {
+        Log.Information($"{version}");
+        Log.Information("Argument values used (when argument was not given default value is used):");
+        Log.Information(arguments);
+    }
+
+    static void HandleParseError(IEnumerable<Error> errs)
+    {
+        Environment.Exit(1);
+    }
+
+    static void DefaultLogging()
+    {
+        //Create default minimal logger until settings are loaded
+        Log.Logger = new LoggerConfiguration()
+         .MinimumLevel.Verbose() //send all events to sinks
+         .WriteTo.Console(restrictedToMinimumLevel: LogEventLevel.Debug)
+         .CreateLogger();
     }
 }

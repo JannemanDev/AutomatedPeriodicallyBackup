@@ -1,8 +1,7 @@
 ﻿using AutomatedPeriodicallyBackup;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
-using System.Diagnostics;
-using System.IO.Compression;
+using Serilog;
 using System.Runtime.Serialization;
 
 partial class Program
@@ -14,6 +13,7 @@ partial class Program
         CreateEmptyBackup,
         CreateEmptyBackupWithSuffix,
     }
+
     public enum BackupFileInUseStrategy
     {
         Skip,
@@ -45,31 +45,39 @@ partial class Program
 
         [JsonConverter(typeof(StringEnumConverter))]
         public PreserveFolderStrategy PreserveFolderStrategy { get; init; }
-               
+
         [JsonConverter(typeof(StringEnumConverter))]
         public BackupFileInUseStrategy BackupFileInUseStrategy { get; init; }
 
         [OnDeserialized]
         internal void OnDeserializedMethod(StreamingContext context)
         {
-            Debug.WriteLine("Settings OnDeserialized called");
+            Log.Debug("Settings OnDeserialized called");
 
-            foreach (var sourceFolder in SourceFolders)
-            {
-                if (sourceFolder.FilePattern == null) sourceFolder.FilePattern = DefaultFolderSettings.FilePattern;
-                if (sourceFolder.IncludeSubFolders == null) sourceFolder.IncludeSubFolders = DefaultFolderSettings.IncludeSubFolders;
-                if (sourceFolder.MinFileSize == null) sourceFolder.MinFileSize = DefaultFolderSettings.MinFileSize;
-                if (sourceFolder.MaxFileSize == null) sourceFolder.MaxFileSize = DefaultFolderSettings.MaxFileSize;
-                if (sourceFolder.CompressionLevel == null) sourceFolder.CompressionLevel = DefaultFolderSettings.CompressionLevel;
-            }
+            SetDefaultsForNullProperties(SourceFolders, "Source");
+            SetDefaultsForNullProperties(ExcludedFolders, "Excluded");
 
-            foreach (var excludedFolder in ExcludedFolders)
+            Log.Debug("Settings OnDeserialized ended");
+        }
+
+        void SetDefaultsForNullProperties(List<FolderProperties> folders, string folderType)
+        {
+            foreach (var folder in folders)
             {
-                if (excludedFolder.FilePattern == null) excludedFolder.FilePattern = DefaultFolderSettings.FilePattern;
-                if (excludedFolder.IncludeSubFolders == null) excludedFolder.IncludeSubFolders = DefaultFolderSettings.IncludeSubFolders;
-                if (excludedFolder.MinFileSize == null) excludedFolder.MinFileSize = DefaultFolderSettings.MinFileSize;
-                if (excludedFolder.MaxFileSize == null) excludedFolder.MaxFileSize = DefaultFolderSettings.MaxFileSize;
-                if (excludedFolder.CompressionLevel == null) excludedFolder.CompressionLevel = DefaultFolderSettings.CompressionLevel;
+                FolderProperties folderBefore = folder.Clone();
+
+                if (folder.FilePattern == null) folder.FilePattern = DefaultFolderSettings.FilePattern;
+                if (folder.IncludeSubFolders == null) folder.IncludeSubFolders = DefaultFolderSettings.IncludeSubFolders;
+                if (folder.MinFileSize == null) folder.MinFileSize = DefaultFolderSettings.MinFileSize;
+                if (folder.MaxFileSize == null) folder.MaxFileSize = DefaultFolderSettings.MaxFileSize;
+                if (folder.CompressionLevel == null) folder.CompressionLevel = DefaultFolderSettings.CompressionLevel;
+
+                if (folderBefore != folder)
+                {
+                    Log.Debug($"One or more properties for {folderType}Folder \"{folder.Folder}\" were not set in the settings json file. Using defaults for those properties.");
+                    Log.Debug($"Before:\n{folderBefore.AsJson()}");
+                    Log.Debug($"After:\n{folder.AsJson()}");
+                }
             }
         }
     }

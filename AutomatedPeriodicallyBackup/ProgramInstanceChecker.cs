@@ -1,37 +1,26 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
-using static Program;
-
-namespace AutomatedPeriodicallyBackup
+﻿internal class ProgramInstanceChecker : IDisposable
 {
-    internal class ProgramInstanceChecker : IDisposable
+    List<Mutex> mutexes = new List<Mutex>();
+
+    public bool IsRunning { get; init; }
+
+    public ProgramInstanceChecker(params string[] mutexNames)
     {
-        List<Mutex> mutexes = new List<Mutex>();
+        IsRunning = false;
 
-        public bool IsRunning { get; init; }
-
-        public ProgramInstanceChecker(params string[] mutexNames)
+        foreach (string mutexName in mutexNames)
         {
-            IsRunning = false;
-
-            foreach (string mutexName in mutexNames)
-            {
-                bool createdNew;
-                mutexes.Add(new Mutex(true, mutexName, out createdNew));
-                IsRunning = IsRunning || !createdNew;
-            }
+            bool createdNew;
+            mutexes.Add(new Mutex(true, mutexName, out createdNew));
+            IsRunning = IsRunning || !createdNew;
         }
+    }
 
-        public void Dispose()
+    public void Dispose()
+    {
+        foreach (Mutex mutex in mutexes)
         {
-            foreach (Mutex mutex in mutexes)
-            {
-                mutex.ReleaseMutex();
-            }
+            mutex.ReleaseMutex();
         }
     }
 }

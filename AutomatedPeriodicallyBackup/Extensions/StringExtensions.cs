@@ -1,7 +1,21 @@
 ﻿using Newtonsoft.Json;
+using System.Text;
 
 public static class StringExtensions
 {
+    public static string IndentLines(this string str, string indent)
+    {
+        List<string> lines = str.Split(Environment.NewLine).ToList();
+        StringBuilder sb = new StringBuilder();
+
+        for (int i = 0; i < lines.Count; i++)
+        {
+            sb.AppendLine($"{indent}{lines[i]}");
+        }
+
+        return sb.ToString();
+    }
+
     public static string UpperCaseFirstLetter(this string input)
     {
         if (!string.IsNullOrEmpty(input))

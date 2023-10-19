@@ -32,16 +32,16 @@
   "BackupNotChangedStrategy": "Keep",
   "PrefixBackupFilename": "backup",
   "SuffixWhenBackupNotChanged": "-same",
-  "PreserveFolderStrategy": "FullPath",
+  "PreserveFolderInArchiveStrategy": "FullPath",
   "BackupFileInUseStrategy": "TryByMakingCopy",
   "Serilog": {
-    "MinimumLevel": "Information",
+    "MinimumLevel": "Debug",
     "WriteTo": [
       {
         "Name": "Console",
         "Args": {
           "outputTemplate": "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}",
-          "restrictedToMinimumLevel": "Information"
+          "restrictedToMinimumLevel": "Debug"
         }
       },
       {
@@ -51,7 +51,7 @@
           "rollingInterval": "Day",
           "outputTemplate": "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}",
           "retainedFileCountLimit": 7,
-          "restrictedToMinimumLevel": "Information"
+          "restrictedToMinimumLevel": "Debug"
         }
       }
     ]

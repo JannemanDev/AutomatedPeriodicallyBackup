@@ -1,6 +1,20 @@
-﻿internal class ProgramInstanceChecker : IDisposable
+﻿using Serilog;
+
+record MutexInfo
 {
-    List<Mutex> mutexes = new List<Mutex>();
+    public string MutexName { get; set; }
+    public Mutex Mutex { get; set; }
+
+    public MutexInfo(string mutexName, Mutex mutex)
+    {
+        MutexName = mutexName;
+        Mutex = mutex;
+    }
+}
+
+internal class ProgramInstanceChecker : IDisposable
+{
+    List<MutexInfo> mutexes = new List<MutexInfo>();
 
     public bool IsRunning { get; init; }
 
@@ -11,16 +25,27 @@
         foreach (string mutexName in mutexNames)
         {
             bool createdNew;
-            mutexes.Add(new Mutex(true, mutexName, out createdNew));
+            Mutex mutex = new Mutex(true, mutexName, out createdNew);
             IsRunning = IsRunning || !createdNew;
+            if (!IsRunning)
+            {
+                Log.Debug($"Created Mutex successfully: {mutexName}");
+                mutexes.Add(new MutexInfo(mutexName, mutex));
+            }
+            else
+            {
+                Log.Debug($"Mutex already exist: {mutexName}");
+                break;
+            }
         }
     }
 
     public void Dispose()
     {
-        foreach (Mutex mutex in mutexes)
+        foreach (MutexInfo mutexInfo in mutexes)
         {
-            mutex.ReleaseMutex();
+            Log.Debug($"Releasing Mutex {mutexInfo.MutexName}");
+            mutexInfo.Mutex.ReleaseMutex();
         }
     }
 }

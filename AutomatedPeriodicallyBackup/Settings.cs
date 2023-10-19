@@ -6,29 +6,6 @@ using System.Runtime.Serialization;
 
 partial class Program
 {
-    public enum BackupNotChangedStrategy
-    {
-        Keep,
-        Delete,
-        CreateEmptyBackup,
-        CreateEmptyBackupWithSuffix,
-    }
-
-    public enum BackupFileInUseStrategy
-    {
-        Skip,
-        TryByMakingCopy,
-    }
-
-    public enum PreserveFolderStrategy
-    {
-        //For example: c:\temp\test1\file.txt
-        FullPathWithDrive,  // /c/temp/test1/file.txt
-        FullPath,           // /temp/test1/file.txt
-        OnlyParentFolder,   // /test1/file.txt
-        None,               // /file.txt
-    }
-
     public class Settings
     {
         public DefaultFolderSettings DefaultFolderSettings { get; set; }
@@ -44,7 +21,7 @@ partial class Program
         public string SuffixWhenBackupNotChanged { get; init; } = string.Empty;
 
         [JsonConverter(typeof(StringEnumConverter))]
-        public PreserveFolderStrategy PreserveFolderStrategy { get; init; }
+        public PreserveFolderInArchiveStrategy PreserveFolderInArchiveStrategy { get; init; }
 
         [JsonConverter(typeof(StringEnumConverter))]
         public BackupFileInUseStrategy BackupFileInUseStrategy { get; init; }
@@ -74,9 +51,10 @@ partial class Program
 
                 if (folderBefore != folder)
                 {
-                    Log.Debug($"One or more properties for {folderType}Folder \"{folder.Folder}\" were not set in the settings json file. Using defaults for those properties.");
-                    Log.Debug($"Before:\n{folderBefore.AsJson()}");
-                    Log.Debug($"After:\n{folder.AsJson()}");
+                    Log.Debug($"One or more properties for {folderType}Folder \"{folder.Folder}\" were not set in the settings json file.");
+                    Log.Debug($"Using defaults for those properties.");
+                    Log.Debug($"Before:\n{folderBefore.AsJson().IndentLines(" ").TrimEnd()}");
+                    Log.Debug($"After:\n{folder.AsJson().IndentLines(" ").TrimEnd()}");
                 }
             }
         }

@@ -1,22 +1,20 @@
-﻿using System.IO.Compression;
-using K4os.Hash.xxHash;
-using Newtonsoft.Json;
-using System.Text;
-using static Program;
-using AutomatedPeriodicallyBackup;
-using RegExtract;
-using System.Runtime.InteropServices;
-using Microsoft.Extensions.Configuration;
-using Serilog;
+﻿using AutomatedPeriodicallyBackup;
 using CommandLine;
+using K4os.Hash.xxHash;
+using Microsoft.Extensions.Configuration;
+using Newtonsoft.Json;
+using RegExtract;
+using Serilog;
 using Serilog.Events;
+using System.IO.Compression;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
 
 partial class Program
 {
     //Todo:
-    //-return previous different backup if available -> checksum
-    //-file in use
-
     //-suffix not start with number
     //-name backup must not end with number
 
@@ -24,13 +22,17 @@ partial class Program
     //-prefix/name of backups
     //-frequency of backups
     //-endless loop until Escape
-    //-SeriLog
 
     static Settings settings;
     static string version;
+    static string archiveExtension;
+    static string searchArchivePattern;
 
-    static void Main(string[] args)
+    static async Task Main(string[] args)
     {
+        archiveExtension = ".zip";
+        searchArchivePattern = $"*{archiveExtension}";
+
         DefaultLogging();
 
         var executingDir = AppContext.BaseDirectory;
@@ -54,12 +56,6 @@ partial class Program
             .WithNotParsed(HandleParseError);
 
         string settingsFile = arguments.Value.SettingsFilename;
-        string defaultSearchPattern = "*.zip";
-
-        if (args.Length > 0)
-        {
-            settingsFile = args[0]; // Use specified settings file if provided
-        }
 
         // Read settings from the specified settings file
         settings = ReadSettings(settingsFile);
@@ -74,56 +70,89 @@ partial class Program
             .ReadFrom.Configuration(configuration)
             .CreateLogger();
 
-        // Now, you can use Serilog for logging
-        Log.Information("This is an information message.");
+        CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+        System.Timers.Timer timer = new System.Timers.Timer();
+        int intervalInMinutes = 1; // Set your desired interval in minutes
 
+        Log.Information("Press Escape (Esc) key to exit.");
+
+        timer.Elapsed += (sender, e) =>
+        {
+            if (!cancellationTokenSource.Token.IsCancellationRequested)
+            {
+                PerformBackup();
+            }
+        };
+
+        //timer.Interval = intervalInMinutes * 60 * 1000; // Convert minutes to milliseconds
+        timer.Interval = 10 * 1000; // Convert minutes to milliseconds
+        timer.Start();
+
+        ConsoleKeyInfo keyInfo;
+        do
+        {
+            keyInfo = Console.ReadKey(intercept: true);
+            if (keyInfo.Key == ConsoleKey.Escape)
+            {
+                cancellationTokenSource.Cancel();
+            }
+        } while (keyInfo.Key != ConsoleKey.Escape);
+
+        await Task.Delay(500); // Wait for a short time for the method to finish (adjust as needed)
+        
+        timer.Stop();
+        timer.Dispose();
+
+        Log.CloseAndFlush();
+    }
+
+    private static void PerformBackup()
+    {
         using (ProgramInstanceChecker programInstanceChecker = new ProgramInstanceChecker(CalculateChecksum(settings.LocalBackupFolder).ToString(), CalculateChecksum(settings.RemoteBackupFolder).ToString()))
         {
             if (!programInstanceChecker.IsRunning)
             {
-                // Before creating new zip backup, first rename existing backups based on their creation date
-                List<string> localBackups = GetFilesFromFolders(SortDirection.FromNewestToOldest, FolderProperties.CreateFromFolder(settings.LocalBackupFolder));
+                // Before creating new archive backup, first rename existing backups based on their creation date
+                List<string> localBackups = GetFilesFromFolder(SortDirection.FromNewestToOldest, FolderProperties.CreateFromFolder(settings.LocalBackupFolder));
                 RenameAndRenumberFiles(localBackups, 1, settings.PrefixBackupFilename, settings.SuffixWhenBackupNotChanged);
 
                 // Create a new backup 0
-                string newLocalBackupFilename = Path.Combine(settings.LocalBackupFolder, "backup0.zip");
-                ZipDirectories(settings.SourceFolders, newLocalBackupFilename, settings.ExcludedFolders, settings.PreserveFolderStrategy, settings.BackupFileInUseStrategy);
+                string newLocalBackupFilename = Path.Combine(settings.LocalBackupFolder, $"backup0{archiveExtension}");
+                ArchiveDirectories(newLocalBackupFilename, settings.SourceFolders, settings.ExcludedFolders, settings.PreserveFolderInArchiveStrategy, settings.BackupFileInUseStrategy);
 
-                string previousLocalBackupFilename = SearchPreviousCompleteBackup(FolderProperties.CreateFromFolder(settings.LocalBackupFolder), defaultSearchPattern, 1);
-                CompareBackups(newLocalBackupFilename, previousLocalBackupFilename);
+                string previousCompleteLocalBackupFilename = SearchPreviousCompleteBackup(FolderProperties.CreateFromFolder(settings.LocalBackupFolder), searchArchivePattern, 1);
+                CompareBackups(newLocalBackupFilename, previousCompleteLocalBackupFilename);
 
                 // Check if RemoteBackupFolder is available
                 if (!string.IsNullOrEmpty(settings.RemoteBackupFolder) && Directory.Exists(settings.RemoteBackupFolder))
                 {
-                    string previousRemoteBackupFilename = SearchPreviousCompleteBackup(FolderProperties.CreateFromFolder(settings.RemoteBackupFolder), defaultSearchPattern, 0);
-                    string oldestLocalBackupFilename = GetFilesFromFolders(SortDirection.FromOldestToNewest, FolderProperties.CreateFromFolder(settings.LocalBackupFolder)).FirstOrDefault("");
-                    CompareBackups(oldestLocalBackupFilename, previousRemoteBackupFilename);
+                    string latestCompleteRemoteBackupFilename = SearchPreviousCompleteBackup(FolderProperties.CreateFromFolder(settings.RemoteBackupFolder), searchArchivePattern, 0);
+                    string oldestLocalBackupFilename = GetFilesFromFolder(SortDirection.FromOldestToNewest, FolderProperties.CreateFromFolder(settings.LocalBackupFolder)).FirstOrDefault("");
+                    CompareBackups(oldestLocalBackupFilename, latestCompleteRemoteBackupFilename);
 
-                    // Get all zip files from both local and remote folders
+                    // Get all archive files from both local and remote folders
                     List<string> allBackups = GetFilesFromFolders(SortDirection.FromNewestToOldest, FolderProperties.CreateFromFolder(settings.LocalBackupFolder), FolderProperties.CreateFromFolder(settings.RemoteBackupFolder));
                     RenameAndRenumberFiles(allBackups, 0, settings.PrefixBackupFilename, settings.SuffixWhenBackupNotChanged);
 
-                    // Move all zip files from the local folder to the remote NAS folder
+                    // Move all archive files from the local folder to the remote NAS folder
                     MoveFilesToFolder(GetFilesFromFolders(FolderProperties.CreateFromFolder(settings.LocalBackupFolder)), settings.RemoteBackupFolder);
                 }
                 else
                 {
-                    Log.Warning("Remote NAS folder is not available. Skipping remote operations.");
+                    Log.Warning($"RemoteBackupFolder \"{settings.RemoteBackupFolder}\" is currently not available. Skipping remote operations.");
                 }
             }
             else
             {
-                Log.Warning($"Another instance is already running with the same zipFolderPath {settings.LocalBackupFolder} and/or remoteNASFolder {settings.RemoteBackupFolder}.");
+                Log.Error($"Another instance is already running with the same LocalBackupFolder \"{settings.LocalBackupFolder}\" and/or RemoteBackupFolder \"{settings.RemoteBackupFolder}\".");
             }
         }
-
-        Log.CloseAndFlush();
     }
 
     //Will return empty string if no previous (complete) backup is found
     private static string SearchPreviousCompleteBackup(FolderProperties folder, string searchPattern, int skipFirstNumBackups = 0)
     {
-        List<string> backups = GetFilesFromFolders(SortDirection.FromNewestToOldest, folder);
+        List<string> backups = GetFilesFromFolder(SortDirection.FromNewestToOldest, folder);
 
         return backups
             .Skip(skipFirstNumBackups)
@@ -143,7 +172,7 @@ partial class Program
 
             // Compare checksums and create an empty backup if they match
             if (checksumNewBackup == checksumPreviousBackup)
-            {   
+            {
                 Log.Information($"Checksums match of:");
                 Log.Information($" {newBackupFilename}");
                 Log.Information($" {previousBackupFilename}");
@@ -163,7 +192,7 @@ partial class Program
                         CreateEmptyBackup(newBackupFilename, settings.SuffixWhenBackupNotChanged);
                         break;
                     default:
-                        throw new Exception($"BackupFileInUseStrategy {settings.BackupNotChangedStrategy} not implemented!");
+                        throw new Exception($"BackupFileInUseStrategy {settings.BackupNotChangedStrategy} not implemented in {MethodBase.GetCurrentMethod().Name}!");
                 }
             }
         }
@@ -256,11 +285,9 @@ partial class Program
         }
     }
 
-    enum SortDirection
+    static List<string> GetFilesFromFolder(FolderProperties folderPath)
     {
-        None,
-        FromOldestToNewest,
-        FromNewestToOldest,
+        return GetFilesFromFolder(SortDirection.None, folderPath);
     }
 
     static List<string> GetFilesFromFolder(SortDirection sortDirection, FolderProperties folderPath)
@@ -316,20 +343,20 @@ partial class Program
 
     static void RenameAndRenumberFiles(List<string> files, int startNr, string prefix, string suffix)
     {
-        int numDigits = (int)((files.Count + 1) / 10.0) + 1; //one extra backup file and round up
+        int numDigits = (files.Count + 1).ToString().Length; //one extra backup file and round up
         int newNr = files.Count - 1 + startNr;
         for (int i = files.Count - 1; i >= 0; i--)
         {
             string oldFullFileName = files[i];
             string oldFolder = Path.GetDirectoryName(oldFullFileName) ?? string.Empty;
             string oldFilename = Path.GetFileName(oldFullFileName);
-            string oldSuffix = oldFilename.Extract<string>(@".*?\d+(.*)\.zip") ?? string.Empty;
+            string oldSuffix = oldFilename.Extract<string>(@$".*?\d+(.*){Regex.Escape(archiveExtension)}") ?? string.Empty;
             string newSuffix = (oldSuffix != string.Empty || FileSize(oldFullFileName) == 0) ? suffix : string.Empty;
 
             string formatString = $"D{numDigits}"; // Create the format string based on 'n'
             string formattedNewNr = string.Format($"{{0:{formatString}}}", newNr);
 
-            string newFileName = Path.Combine(oldFolder, $"{prefix}{formattedNewNr}{newSuffix}.zip");
+            string newFileName = Path.Combine(oldFolder, $"{prefix}{formattedNewNr}{newSuffix}{archiveExtension}");
 
             RenameFile(oldFullFileName, newFileName);
 
@@ -344,34 +371,34 @@ partial class Program
             : file2.CompareTo(file1));
     }
 
-    static void MoveFilesToFolder(List<string> zipFiles, string newFolder)
+    static void MoveFilesToFolder(List<string> archiveFiles, string newFolder)
     {
-        foreach (string zipFile in zipFiles)
+        foreach (string archiveFile in archiveFiles)
         {
-            string remoteFilePath = Path.Combine(newFolder, Path.GetFileName(zipFile));
-            File.Move(zipFile, remoteFilePath);
+            string remoteFilePath = Path.Combine(newFolder, Path.GetFileName(archiveFile));
+            File.Move(archiveFile, remoteFilePath);
         }
     }
 
-    static void ZipDirectories(List<FolderProperties> sourceDirectories, string zipPath, List<FolderProperties> excludeDirectories, PreserveFolderStrategy preserveFolderStrategy, BackupFileInUseStrategy backupFileInUseStrategy)
+    static void ArchiveDirectories(string archivePath, List<FolderProperties> sourceDirectories, List<FolderProperties> excludedDirectories, PreserveFolderInArchiveStrategy preserveFolderStrategy, BackupFileInUseStrategy backupFileInUseStrategy)
     {
         //get all excluded files
-        List<string> excludedFullFilenames = GetFilesFromFolders(excludeDirectories).Select(f => NormalizeFilename(f)).ToList();
+        List<string> excludedFullFilenames = GetFilesFromFolders(excludedDirectories).Select(f => NormalizeFilename(f)).ToList();
 
-        using var zipStream = new FileStream(zipPath, FileMode.Create, FileAccess.Write);
-        using var archive = new ZipArchive(zipStream, ZipArchiveMode.Create);
+        using var archiveStream = new FileStream(archivePath, FileMode.Create, FileAccess.Write);
+        using var archive = new ZipArchive(archiveStream, ZipArchiveMode.Create);
 
         foreach (var sourceDirectory in sourceDirectories)
         {
             //get all files from this directory
-            List<string> fullFilenames = GetFilesFromFolders(sourceDirectory);
+            List<string> fullFilenames = GetFilesFromFolder(sourceDirectory);
 
             //exclude fullFilenames that are listed in excludedFullFilenames
             fullFilenames = fullFilenames
                 .Where(f => !excludedFullFilenames.Any(ef => ef.Equals(NormalizeFilename(f))))
                 .ToList();
 
-            AppendDirectoryToZip(fullFilenames, archive, preserveFolderStrategy, backupFileInUseStrategy, (CompressionLevel)sourceDirectory.CompressionLevel!);
+            AppendDirectoryToArchive(fullFilenames, archive, preserveFolderStrategy, backupFileInUseStrategy, (CompressionLevel)sourceDirectory.CompressionLevel!);
         }
     }
 
@@ -380,20 +407,20 @@ partial class Program
         return new FileInfo(fileName).Length;
     }
 
-    static void AppendDirectoryToZip(List<string> fullFilenames, ZipArchive archive, PreserveFolderStrategy preserveFolderStrategy, BackupFileInUseStrategy backupFileInUseStrategy, CompressionLevel compressionLevel)
+    static void AppendDirectoryToArchive(List<string> fullFilenames, ZipArchive archive, PreserveFolderInArchiveStrategy preserveFolderStrategy, BackupFileInUseStrategy backupFileInUseStrategy, CompressionLevel compressionLevel)
     {
         foreach (string fullFilename in fullFilenames)
         {
-            string entryPathInZip = GetEntryPathInZip(fullFilename, preserveFolderStrategy);
+            string entryPathInArchive = GetEntryPathInArchive(fullFilename, preserveFolderStrategy);
 
             string filename = Path.GetFileName(fullFilename);
             try
             {
-                archive.CreateEntryFromFile(fullFilename, $"{Path.Combine(entryPathInZip, filename)}", compressionLevel);
+                archive.CreateEntryFromFile(fullFilename, $"{Path.Combine(entryPathInArchive, filename)}", compressionLevel);
             }
             catch (IOException)
             {
-                // The file is locked, so try to copy it and then add the copy to the ZIP archive
+                // The file is locked, so try to copy it and then add the copy to the archive
                 switch (backupFileInUseStrategy)
                 {
                     case BackupFileInUseStrategy.Skip:
@@ -401,18 +428,18 @@ partial class Program
                     case BackupFileInUseStrategy.TryByMakingCopy:
                         string tempCopyPath = Path.GetTempFileName();
                         File.Copy(fullFilename, tempCopyPath, true); // Copy the file, overwriting if necessary
-                        archive.CreateEntryFromFile(tempCopyPath, $"{Path.Combine(entryPathInZip, filename)}"); // Add the copy to the ZIP archive
+                        archive.CreateEntryFromFile(tempCopyPath, $"{Path.Combine(entryPathInArchive, filename)}"); // Add the copy to the archive
                         File.Delete(tempCopyPath); // Clean up the temporary copy
                         break;
                     default:
-                        throw new Exception($"BackupFileInUseStrategy {backupFileInUseStrategy} not implemented!");
+                        throw new Exception($"BackupFileInUseStrategy {backupFileInUseStrategy} not implemented in {MethodBase.GetCurrentMethod().Name}!");
                 }
 
             }
         }
     }
 
-    static string GetEntryPathInZip(string fullFilename, PreserveFolderStrategy preserveFolderStrategy)
+    static string GetEntryPathInArchive(string fullFilename, PreserveFolderInArchiveStrategy preserveFolderInArchiveStrategy)
     {
         //Testcases:
         //fullFilename = @"c:\temp\test1\file.txt";
@@ -426,34 +453,32 @@ partial class Program
         //None,               // /file.txt
 
         string root = Path.GetPathRoot(fullFilename)!;
-        string driveLetter = root!.TrimEnd('\\').TrimEnd(':');
         string fullPath = Path.GetDirectoryName(fullFilename)!;
         string relativePath = Path.GetRelativePath(root, fullPath);
-        string path = relativePath == "." ? "" : relativePath;
-        string filename = Path.GetFileName(fullFilename);
-        string parentPath = Path.GetFileName(Path.GetDirectoryName(fullFilename)) ?? string.Empty;
 
-        string entryPathInZip = "";
+        string entryPathInArchive;
 
-        switch (preserveFolderStrategy)
+        switch (preserveFolderInArchiveStrategy)
         {
-            case PreserveFolderStrategy.FullPathWithDrive:
-                entryPathInZip = Path.Combine(driveLetter, relativePath);
+            case PreserveFolderInArchiveStrategy.FullPathWithDrive:
+                string driveLetter = root!.TrimEnd('\\').TrimEnd(':');
+                entryPathInArchive = Path.Combine(driveLetter, relativePath);
                 break;
-            case PreserveFolderStrategy.FullPath:
-                entryPathInZip = relativePath;
+            case PreserveFolderInArchiveStrategy.FullPath:
+                entryPathInArchive = relativePath;
                 break;
-            case PreserveFolderStrategy.OnlyParentFolder:
-                entryPathInZip = parentPath;
+            case PreserveFolderInArchiveStrategy.OnlyParentFolder:
+                string parentPath = Path.GetFileName(Path.GetDirectoryName(fullFilename)) ?? string.Empty;
+                entryPathInArchive = parentPath;
                 break;
-            case PreserveFolderStrategy.None:
-                entryPathInZip = "";
+            case PreserveFolderInArchiveStrategy.None:
+                entryPathInArchive = "";
                 break;
             default:
-                throw new Exception($"PreserveFolderStrategy {preserveFolderStrategy} not implemented!");
+                throw new Exception($"PreserveFolderStrategy {preserveFolderInArchiveStrategy} not implemented in {MethodBase.GetCurrentMethod().Name}!");
         }
 
-        return entryPathInZip;
+        return entryPathInArchive;
     }
 
     static string AddSuffixToFilename(string filePath, string suffix)
@@ -512,8 +537,10 @@ partial class Program
     {
         //Create default minimal logger until settings are loaded
         Log.Logger = new LoggerConfiguration()
-         .MinimumLevel.Verbose() //send all events to sinks
-         .WriteTo.Console(restrictedToMinimumLevel: LogEventLevel.Debug)
-         .CreateLogger();
+            .MinimumLevel.Verbose() //send all events to sinks
+            .WriteTo.Console(
+                outputTemplate: "{Message:lj}{NewLine}{Exception}",
+                restrictedToMinimumLevel: LogEventLevel.Debug)
+            .CreateLogger();
     }
 }

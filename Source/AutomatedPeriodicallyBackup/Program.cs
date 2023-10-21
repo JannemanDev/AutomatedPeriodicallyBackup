@@ -17,11 +17,8 @@ partial class Program
     //Todo:
     //-suffix not start with number
     //-name backup must not end with number
-
     //-do not use last modified date -> just sort/use the backup nrs
     //-prefix/name of backups
-    //-frequency of backups
-    //-endless loop until Escape
 
     static Settings settings;
     static string version;

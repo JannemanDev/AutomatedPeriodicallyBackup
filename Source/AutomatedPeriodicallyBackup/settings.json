@@ -34,6 +34,8 @@
   "SuffixWhenBackupNotChanged": "-same",
   "PreserveFolderInArchiveStrategy": "FullPath",
   "BackupFileInUseStrategy": "TryByMakingCopy",
+  "RunOnce": false,
+  "RunIntervalInMinutes": 1,
   "Serilog": {
     "MinimumLevel": "Debug",
     "WriteTo": [

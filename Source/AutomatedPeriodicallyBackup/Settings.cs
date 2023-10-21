@@ -26,6 +26,9 @@ partial class Program
         [JsonConverter(typeof(StringEnumConverter))]
         public BackupFileInUseStrategy BackupFileInUseStrategy { get; init; }
 
+        public bool RunOnce { get; init; }
+        public int RunIntervalInMinutes { get; init; }
+
         [OnDeserialized]
         internal void OnDeserializedMethod(StreamingContext context)
         {

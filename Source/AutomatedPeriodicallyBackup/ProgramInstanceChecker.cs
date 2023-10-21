@@ -45,7 +45,10 @@ internal class ProgramInstanceChecker : IDisposable
         foreach (MutexInfo mutexInfo in mutexes)
         {
             Log.Debug($"Releasing Mutex {mutexInfo.MutexName}");
-            mutexInfo.Mutex.ReleaseMutex();
+            mutexInfo.Mutex?.ReleaseMutex();
+            mutexInfo.Mutex?.Dispose(); //important
         }
+
+        mutexes.Clear();
     }
 }

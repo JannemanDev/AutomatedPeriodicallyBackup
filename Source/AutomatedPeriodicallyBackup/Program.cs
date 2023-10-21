@@ -69,39 +69,44 @@ partial class Program
         Log.Logger = new LoggerConfiguration()
             .ReadFrom.Configuration(configuration)
             .CreateLogger();
-
-        CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
-        System.Timers.Timer timer = new System.Timers.Timer();
-        int intervalInMinutes = 1; // Set your desired interval in minutes
-
-        Log.Information("Press Escape (Esc) key to exit.");
-
-        timer.Elapsed += (sender, e) =>
-        {
-            if (!cancellationTokenSource.Token.IsCancellationRequested)
-            {
-                PerformBackup();
-            }
-        };
-
-        //timer.Interval = intervalInMinutes * 60 * 1000; // Convert minutes to milliseconds
-        timer.Interval = 10 * 1000; // Convert minutes to milliseconds
-        timer.Start();
-
-        ConsoleKeyInfo keyInfo;
-        do
-        {
-            keyInfo = Console.ReadKey(intercept: true);
-            if (keyInfo.Key == ConsoleKey.Escape)
-            {
-                cancellationTokenSource.Cancel();
-            }
-        } while (keyInfo.Key != ConsoleKey.Escape);
-
-        await Task.Delay(500); // Wait for a short time for the method to finish (adjust as needed)
         
-        timer.Stop();
-        timer.Dispose();
+        if (!settings.RunOnce)
+        {
+            CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+            System.Timers.Timer timer = new System.Timers.Timer();
+
+            timer.Elapsed += (sender, e) =>
+            {
+                if (!cancellationTokenSource.Token.IsCancellationRequested)
+                {
+                    PerformBackup();
+                }
+            };
+
+            timer.Interval = settings.RunIntervalInMinutes * 60 * 1000; // Convert minutes to milliseconds
+            timer.Start();
+
+            Log.Information("Press Escape (Esc) key to exit.");
+
+            ConsoleKeyInfo keyInfo;
+            do
+            {
+                keyInfo = Console.ReadKey(intercept: true);
+                if (keyInfo.Key == ConsoleKey.Escape)
+                {
+                    cancellationTokenSource.Cancel();
+                }
+            } while (keyInfo.Key != ConsoleKey.Escape);
+
+            await Task.Delay(500); // Wait for a short time for the method to finish (adjust as needed)
+
+            timer.Stop();
+            timer.Dispose();
+        }
+        else
+        {
+            PerformBackup();
+        }
 
         Log.CloseAndFlush();
     }

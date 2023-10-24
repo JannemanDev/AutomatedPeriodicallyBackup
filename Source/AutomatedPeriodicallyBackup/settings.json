@@ -27,7 +27,7 @@
       "Folder": "C:\\temp\\AutomatedPeriodicallyBackup\\Input2\\Lingo\\woordenlijsten"
     }
   ],
-  "LocalBackupFolder": "C:\\temp\\AutomatedPeriodicallyBackup\\Output",
+  "LocalBackupFolder": "C:\\temp\\AutomatedPeriodicallyBackup\\Output2",
   "RemoteBackupFolder": "C:\\temp\\AutomatedPeriodicallyBackup\\RemoteNAS",
   "BackupNotChangedStrategy": "Keep",
   "PrefixBackupFilename": "backup",
@@ -35,7 +35,9 @@
   "PreserveFolderInArchiveStrategy": "FullPath",
   "BackupFileInUseStrategy": "TryByMakingCopy",
   "RunOnce": false,
-  "RunIntervalInMinutes": 1,
+  "RunInterval": "00:00:00:10",
+  "DeleteBackupsWhenOlderThan": "00:00:00:30",
+  "MinimumBackupsToKeep": 10,
   "Serilog": {
     "MinimumLevel": "Debug",
     "WriteTo": [

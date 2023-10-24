@@ -17,10 +17,9 @@ partial class Program
     //Todo:
     //-suffix not start with number
     //-name backup must not end with number
-    //-do not use last modified date -> just sort/use the backup nrs
     //-prefix/name of backups
 
-    static Settings settings;
+    static Settings? settings;
     static string version;
     static string archiveExtension;
     static string searchArchivePattern;
@@ -52,60 +51,103 @@ partial class Program
             .WithParsed(RunOptions)
             .WithNotParsed(HandleParseError);
 
-        string settingsFile = arguments.Value.SettingsFilename;
+        string settingsFilename = arguments.Value.SettingsFilename;
 
-        // Read settings from the specified settings file
-        settings = ReadSettings(settingsFile);
+        CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+        do
+        {
+            Settings? previousSettings;
+            previousSettings = settings?.Clone();
+            //int? ps = previousSettings?.GetHashCode();
+            //int? s = settings?.GetHashCode();
+            settings = ReadSettings(settingsFilename);
+            //ps = previousSettings?.GetHashCode();
+            //s = settings?.GetHashCode();
+            InitLogging(settingsFilename);
+            
 
+            if (!ReferenceEquals(previousSettings, null) && settings != previousSettings) Log.Information($"Settings in {settingsFilename} changed... reloading settings!");
+
+            Console.CancelKeyPress += (sender, e) =>
+            {
+                e.Cancel = true; // Prevent process termination
+                cancellationTokenSource.Cancel();
+            };
+
+            PerformBackup();
+
+            if (!settings.RunOnce)
+            {
+                try
+                {
+                    DateTime newBackupDateTime = DateTime.Now.Add(settings.RunInterval);
+                    string formattedString = FormatTimeSpan(settings.RunInterval);
+                    Log.Information($"Waiting, next backup will start in {formattedString} at exactly {newBackupDateTime.ToString("yyyy-MM-dd HH:mm:ss")}");
+                    Log.Information($"Press <CTRL>-C to quit application");
+
+                    int secondsToWait = (int)Math.Round(settings.RunInterval.TotalSeconds * 1000);
+                    await Task.Delay(secondsToWait, cancellationTokenSource.Token);
+                }
+                catch (TaskCanceledException)
+                {
+                    // Task was canceled due to Escape key press
+                    Log.Information("User pressed <CTRL>-C and thereby requested to quit the application...");
+                }
+            }
+
+            Log.CloseAndFlush();
+        } while (!settings.RunOnce && !cancellationTokenSource.IsCancellationRequested);
+    }
+
+    public static string FormatTimeSpan(TimeSpan timeSpan)
+    {
+        int days = timeSpan.Days;
+        int hours = timeSpan.Hours;
+        int minutes = timeSpan.Minutes;
+        int seconds = timeSpan.Seconds;
+
+        List<string> parts = new List<string>();
+
+        if (days > 0)
+        {
+            parts.Add($"{days} {(days == 1 ? "day" : "days")}");
+        }
+
+        if (hours > 0)
+        {
+            parts.Add($"{hours} {(hours == 1 ? "hour" : "hours")}");
+        }
+
+        if (minutes > 0)
+        {
+            parts.Add($"{minutes} {(minutes == 1 ? "minute" : "minutes")}");
+        }
+
+        if (seconds > 0)
+        {
+            parts.Add($"{seconds} {(seconds == 1 ? "second" : "seconds")}");
+        }
+
+        if (parts.Count > 1)
+        {
+            string lastPart = parts[parts.Count - 1];
+            parts[parts.Count - 1] = "and " + lastPart;
+        }
+
+        return string.Join(parts.Count > 2 ? ", " : " ", parts);
+    }
+
+    private static void InitLogging(string settingsFile)
+    {
         // Build the configuration
         var configuration = new ConfigurationBuilder()
-            .AddJsonFile("settings.json") // Provide the path to your JSON file
+            .AddJsonFile(settingsFile) // Provide the path to your JSON file
             .Build();
 
         // Configure Serilog using the configuration settings
         Log.Logger = new LoggerConfiguration()
             .ReadFrom.Configuration(configuration)
             .CreateLogger();
-        
-        if (!settings.RunOnce)
-        {
-            CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
-            System.Timers.Timer timer = new System.Timers.Timer();
-
-            timer.Elapsed += (sender, e) =>
-            {
-                if (!cancellationTokenSource.Token.IsCancellationRequested)
-                {
-                    PerformBackup();
-                }
-            };
-
-            timer.Interval = settings.RunIntervalInMinutes * 60 * 1000; // Convert minutes to milliseconds
-            timer.Start();
-
-            Log.Information("Press Escape (Esc) key to exit.");
-
-            ConsoleKeyInfo keyInfo;
-            do
-            {
-                keyInfo = Console.ReadKey(intercept: true);
-                if (keyInfo.Key == ConsoleKey.Escape)
-                {
-                    cancellationTokenSource.Cancel();
-                }
-            } while (keyInfo.Key != ConsoleKey.Escape);
-
-            await Task.Delay(500); // Wait for a short time for the method to finish (adjust as needed)
-
-            timer.Stop();
-            timer.Dispose();
-        }
-        else
-        {
-            PerformBackup();
-        }
-
-        Log.CloseAndFlush();
     }
 
     private static void PerformBackup()
@@ -114,34 +156,70 @@ partial class Program
         {
             if (!programInstanceChecker.IsRunning)
             {
-                // Before creating new archive backup, first rename existing backups based on their creation date
-                List<string> localBackups = GetFilesFromFolder(SortDirection.FromNewestToOldest, FolderProperties.CreateFromFolder(settings.LocalBackupFolder));
-                RenameAndRenumberFiles(localBackups, 1, settings.PrefixBackupFilename, settings.SuffixWhenBackupNotChanged);
-
-                // Create a new backup 0
-                string newLocalBackupFilename = Path.Combine(settings.LocalBackupFolder, $"backup0{archiveExtension}");
-                ArchiveDirectories(newLocalBackupFilename, settings.SourceFolders, settings.ExcludedFolders, settings.PreserveFolderInArchiveStrategy, settings.BackupFileInUseStrategy);
-
-                string previousCompleteLocalBackupFilename = SearchPreviousCompleteBackup(FolderProperties.CreateFromFolder(settings.LocalBackupFolder), searchArchivePattern, 1);
-                CompareBackups(newLocalBackupFilename, previousCompleteLocalBackupFilename);
-
-                // Check if RemoteBackupFolder is available
-                if (!string.IsNullOrEmpty(settings.RemoteBackupFolder) && Directory.Exists(settings.RemoteBackupFolder))
+                if (!string.IsNullOrEmpty(settings.LocalBackupFolder) && Directory.Exists(settings.LocalBackupFolder))
                 {
-                    string latestCompleteRemoteBackupFilename = SearchPreviousCompleteBackup(FolderProperties.CreateFromFolder(settings.RemoteBackupFolder), searchArchivePattern, 0);
-                    string oldestLocalBackupFilename = GetFilesFromFolder(SortDirection.FromOldestToNewest, FolderProperties.CreateFromFolder(settings.LocalBackupFolder)).FirstOrDefault("");
-                    CompareBackups(oldestLocalBackupFilename, latestCompleteRemoteBackupFilename);
+                    // Before creating new archive backup, first rename existing backups based on their creation date
+                    List<string> localBackups = GetFilesFromFolder(SortDirection.FromNewestToOldest, FolderProperties.CreateFromFolder(settings.LocalBackupFolder));
+                    RenumberFiles(localBackups, 1, settings.PrefixBackupFilename, settings.SuffixWhenBackupNotChanged);
 
-                    // Get all archive files from both local and remote folders
-                    List<string> allBackups = GetFilesFromFolders(SortDirection.FromNewestToOldest, FolderProperties.CreateFromFolder(settings.LocalBackupFolder), FolderProperties.CreateFromFolder(settings.RemoteBackupFolder));
-                    RenameAndRenumberFiles(allBackups, 0, settings.PrefixBackupFilename, settings.SuffixWhenBackupNotChanged);
+                    // Create a new backup 0
+                    int numDigits = NrOfDigits(localBackups.Count + 1);
+                    string zeros = FormatNumberWithLeadingZeros(0, numDigits);
+                    string newLocalBackupFilename = Path.Combine(settings.LocalBackupFolder, $"{settings.PrefixBackupFilename}{zeros}{archiveExtension}");
+                    ArchiveDirectories(newLocalBackupFilename, settings.SourceFolders, settings.ExcludedFolders, settings.PreserveFolderInArchiveStrategy, settings.BackupFileInUseStrategy);
 
-                    // Move all archive files from the local folder to the remote NAS folder
-                    MoveFilesToFolder(GetFilesFromFolders(FolderProperties.CreateFromFolder(settings.LocalBackupFolder)), settings.RemoteBackupFolder);
+                    string previousCompleteLocalBackupFilename = SearchPreviousCompleteBackup(FolderProperties.CreateFromFolder(settings.LocalBackupFolder), searchArchivePattern, 1);
+                    CompareBackups(newLocalBackupFilename, previousCompleteLocalBackupFilename);
+
+                    // Check if RemoteBackupFolder is available
+                    if (!string.IsNullOrEmpty(settings.RemoteBackupFolder) && Directory.Exists(settings.RemoteBackupFolder))
+                    {
+                        string latestCompleteRemoteBackupFilename = SearchPreviousCompleteBackup(FolderProperties.CreateFromFolder(settings.RemoteBackupFolder), searchArchivePattern, 0);
+                        string oldestLocalBackupFilename = GetFilesFromFolder(SortDirection.FromOldestToNewest, FolderProperties.CreateFromFolder(settings.LocalBackupFolder)).FirstOrDefault("");
+                        CompareBackups(oldestLocalBackupFilename, latestCompleteRemoteBackupFilename);
+
+                        // Get all archive files from both local and remote folders
+                        List<string> allBackups = GetFilesFromFolders(SortDirection.FromNewestToOldest, FolderProperties.CreateFromFolder(settings.LocalBackupFolder), FolderProperties.CreateFromFolder(settings.RemoteBackupFolder));
+                        RenumberFiles(allBackups, 0, settings.PrefixBackupFilename, settings.SuffixWhenBackupNotChanged);
+
+                        // Move all archive files from the local folder to the remote folder
+                        MoveFilesToFolder(GetFilesFromFolders(FolderProperties.CreateFromFolder(settings.LocalBackupFolder)), settings.RemoteBackupFolder);
+
+                        List<string> allRemoteBackups = GetFilesFromFolders(SortDirection.FromNewestToOldest, FolderProperties.CreateFromFolder(settings.RemoteBackupFolder));
+                        
+                        // Delete old backups
+                        List<BackupInfo> tooOldRemoteBackups = allRemoteBackups
+                                   .Skip(settings.MinimumBackupsToKeep)
+                                   .Select(backup => new BackupInfo
+                                   {
+                                       Filename = backup,
+                                       Age = FileAgeSinceLastModification(backup)
+                                   })
+                                   .Where(info => info.Age > settings.DeleteBackupsWhenOlderThan)
+                                   .ToList();
+
+                        if (tooOldRemoteBackups.Any())
+                        {
+                            Log.Information($"Found {tooOldRemoteBackups.Count} backup(s) which are older than {FormatTimeSpan(settings.DeleteBackupsWhenOlderThan)}:");
+
+                            tooOldRemoteBackups.ForEach(f =>
+                            {
+                                TimeSpan delta = f.Age - settings.DeleteBackupsWhenOlderThan;
+                                Log.Information($" Deleting an too old backup which is {FormatTimeSpan(delta)} too old:");
+                                Log.Information($"  \"{f.Filename}\" is {FormatTimeSpan(f.Age)} old");
+
+                                File.Delete(f.Filename);
+                            });
+                        }
+                    }
+                    else
+                    {
+                        Log.Warning($"RemoteBackupFolder \"{settings.RemoteBackupFolder}\" is currently not available. Skipping remote operations.");
+                    }
                 }
                 else
                 {
-                    Log.Warning($"RemoteBackupFolder \"{settings.RemoteBackupFolder}\" is currently not available. Skipping remote operations.");
+                    Log.Warning($"LocalBackupFolder \"{settings.LocalBackupFolder}\" is currently not available. Skipping this backup round.");
                 }
             }
             else
@@ -343,9 +421,22 @@ partial class Program
         File.Move(oldFileName, newFileName);
     }
 
-    static void RenameAndRenumberFiles(List<string> files, int startNr, string prefix, string suffix)
+    static int NrOfDigits(int i)
     {
-        int numDigits = (files.Count + 1).ToString().Length; //one extra backup file and round up
+        return i.ToString().Length;
+    }
+
+    static string FormatNumberWithLeadingZeros(int n, int numDigits)
+    {
+        string formatString = $"D{numDigits}"; // Create the format string based on 'n'
+        string formattedNewNr = string.Format($"{{0:{formatString}}}", n);
+
+        return formattedNewNr;
+    }
+
+    static void RenumberFiles(List<string> files, int startNr, string prefix, string suffix)
+    {
+        int numDigits = NrOfDigits(files.Count + 1); //one extra backup file and round up
         int newNr = files.Count - 1 + startNr;
         for (int i = files.Count - 1; i >= 0; i--)
         {
@@ -355,8 +446,7 @@ partial class Program
             string oldSuffix = oldFilename.Extract<string>(@$".*?\d+(.*){Regex.Escape(archiveExtension)}") ?? string.Empty;
             string newSuffix = (oldSuffix != string.Empty || FileSize(oldFullFileName) == 0) ? suffix : string.Empty;
 
-            string formatString = $"D{numDigits}"; // Create the format string based on 'n'
-            string formattedNewNr = string.Format($"{{0:{formatString}}}", newNr);
+            string formattedNewNr = FormatNumberWithLeadingZeros(newNr, numDigits);
 
             string newFileName = Path.Combine(oldFolder, $"{prefix}{formattedNewNr}{newSuffix}{archiveExtension}");
 
@@ -402,6 +492,16 @@ partial class Program
 
             AppendDirectoryToArchive(fullFilenames, archive, preserveFolderStrategy, backupFileInUseStrategy, (CompressionLevel)sourceDirectory.CompressionLevel!);
         }
+    }
+
+    static TimeSpan FileAgeSinceLastModification(string filename)
+    {
+        FileInfo fileInfo = new FileInfo(filename);
+
+        // Calculate file age based on last modification time
+        TimeSpan fileAgeBasedOnModification = DateTime.Now - fileInfo.LastWriteTime;
+
+        return fileAgeBasedOnModification;
     }
 
     static long FileSize(string fileName)

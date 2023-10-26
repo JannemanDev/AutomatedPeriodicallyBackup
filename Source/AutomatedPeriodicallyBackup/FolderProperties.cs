@@ -12,7 +12,8 @@ namespace AutomatedPeriodicallyBackup
     internal class FolderProperties
     {
         public string Folder { get; set; } = "";
-        public string? FilePattern { get; set; }
+        public string?[] FilePatterns { get; set; }
+        public string?[] IgnoreFilePatterns { get; set; }
         public bool? IncludeSubFolders { get; set; }
         public long? MinFileSize { get; set; }
         public long? MaxFileSize { get; set; }
@@ -24,10 +25,11 @@ namespace AutomatedPeriodicallyBackup
         {       
         }
 
-        public FolderProperties(string folder, string? filePattern, bool? includeSubFolders, long? minFileSize, long? maxFileSize, CompressionLevel? compressionLevel)
+        public FolderProperties(string folder, string?[] filePatterns, string?[] ignoreFilePatterns, bool? includeSubFolders, long? minFileSize, long? maxFileSize, CompressionLevel? compressionLevel)
         {
             Folder = folder;
-            FilePattern = filePattern;
+            FilePatterns = filePatterns;
+            IgnoreFilePatterns = ignoreFilePatterns;
             IncludeSubFolders = includeSubFolders;
             MinFileSize = minFileSize;
             MaxFileSize = maxFileSize;
@@ -41,7 +43,7 @@ namespace AutomatedPeriodicallyBackup
         
         public static FolderProperties CreateFromFolder(string folder, bool includeSubFolders)
         {
-            return new FolderProperties(folder, "*", includeSubFolders, 0, long.MaxValue, System.IO.Compression.CompressionLevel.Optimal);
+            return new FolderProperties(folder, new string?[] { "*" }, new string?[] { }, includeSubFolders, 0, long.MaxValue, System.IO.Compression.CompressionLevel.Optimal);
         }
 
         public override bool Equals(object obj)
@@ -53,7 +55,8 @@ namespace AutomatedPeriodicallyBackup
 
             FolderProperties other = (FolderProperties)obj;
             return Folder == other.Folder &&
-                   FilePattern == other.FilePattern &&
+                   FilePatterns == other.FilePatterns &&
+                   IgnoreFilePatterns == other.IgnoreFilePatterns &&
                    IncludeSubFolders == other.IncludeSubFolders &&
                    MinFileSize == other.MinFileSize &&
                    MaxFileSize == other.MaxFileSize &&
@@ -62,18 +65,24 @@ namespace AutomatedPeriodicallyBackup
 
         public override int GetHashCode()
         {
-            unchecked
-            {
-                int hashCode = 17;
-                hashCode = hashCode * 23 + Folder.GetHashCode();
-                hashCode = hashCode * 23 + (FilePattern?.GetHashCode() ?? 0);
-                hashCode = hashCode * 23 + IncludeSubFolders.GetHashCode();
-                hashCode = hashCode * 23 + (MinFileSize?.GetHashCode() ?? 0);
-                hashCode = hashCode * 23 + (MaxFileSize?.GetHashCode() ?? 0);
-                hashCode = hashCode * 23 + (CompressionLevel?.GetHashCode() ?? 0);
-                return hashCode;
-            }
+            return HashCode.Combine(Folder, FilePatterns, IgnoreFilePatterns, IncludeSubFolders, MinFileSize, MaxFileSize, CompressionLevel);
         }
+
+        //public override int GetHashCode()
+        //{
+        //    unchecked
+        //    {
+        //        int hashCode = 17;
+        //        hashCode = hashCode * 23 + Folder.GetHashCode();
+        //        hashCode = hashCode * 23 + (FilePatterns?.GetHashCode() ?? 0);
+        //        hashCode = hashCode * 23 + (IgnoreFilePatterns?.GetHashCode() ?? 0);
+        //        hashCode = hashCode * 23 + IncludeSubFolders.GetHashCode();
+        //        hashCode = hashCode * 23 + (MinFileSize?.GetHashCode() ?? 0);
+        //        hashCode = hashCode * 23 + (MaxFileSize?.GetHashCode() ?? 0);
+        //        hashCode = hashCode * 23 + (CompressionLevel?.GetHashCode() ?? 0);
+        //        return hashCode;
+        //    }
+        //}
 
         public static bool operator ==(FolderProperties left, FolderProperties right)
         {
@@ -96,7 +105,7 @@ namespace AutomatedPeriodicallyBackup
             return new FolderProperties
             {
                 Folder = this.Folder,
-                FilePattern = this.FilePattern,
+                FilePatterns = this.FilePatterns,
                 IncludeSubFolders = this.IncludeSubFolders,
                 MinFileSize = this.MinFileSize,
                 MaxFileSize = this.MaxFileSize,

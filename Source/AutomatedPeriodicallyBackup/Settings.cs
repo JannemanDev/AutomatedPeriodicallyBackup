@@ -24,7 +24,10 @@ partial class Program
         public PreserveFolderInArchiveStrategy PreserveFolderInArchiveStrategy { get; init; }
 
         [JsonConverter(typeof(StringEnumConverter))]
-        public BackupFileInUseStrategy BackupFileInUseStrategy { get; init; }
+        public BackupFileInUseStrategy BackupFileInUseStrategy { get; init; }        
+        
+        [JsonConverter(typeof(StringEnumConverter))]
+        public LocalToRemoteOperationStrategy LocalToRemoteOperationStrategy { get; init; }
 
         public bool RunOnce { get; init; }
 
@@ -53,7 +56,8 @@ partial class Program
             {
                 FolderProperties folderBefore = folder.Clone();
 
-                if (folder.FilePattern == null) folder.FilePattern = DefaultFolderSettings.FilePattern;
+                if (folder.FilePatterns == null) folder.FilePatterns = DefaultFolderSettings.FilePatterns;
+                if (folder.IgnoreFilePatterns == null) folder.IgnoreFilePatterns = DefaultFolderSettings.IgnoreFilePatterns;
                 if (folder.IncludeSubFolders == null) folder.IncludeSubFolders = DefaultFolderSettings.IncludeSubFolders;
                 if (folder.MinFileSize == null) folder.MinFileSize = DefaultFolderSettings.MinFileSize;
                 if (folder.MaxFileSize == null) folder.MaxFileSize = DefaultFolderSettings.MaxFileSize;
@@ -83,6 +87,7 @@ partial class Program
                 SuffixWhenBackupNotChanged = SuffixWhenBackupNotChanged,
                 PreserveFolderInArchiveStrategy = PreserveFolderInArchiveStrategy,
                 BackupFileInUseStrategy = BackupFileInUseStrategy,
+                LocalToRemoteOperationStrategy = LocalToRemoteOperationStrategy,
                 RunOnce = RunOnce,
                 RunInterval = RunInterval,
                 DeleteBackupsWhenOlderThan = DeleteBackupsWhenOlderThan,
@@ -108,6 +113,7 @@ partial class Program
                    SuffixWhenBackupNotChanged == other.SuffixWhenBackupNotChanged &&
                    PreserveFolderInArchiveStrategy == other.PreserveFolderInArchiveStrategy &&
                    BackupFileInUseStrategy == other.BackupFileInUseStrategy &&
+                   LocalToRemoteOperationStrategy == other.LocalToRemoteOperationStrategy &&
                    RunOnce == other.RunOnce &&
                    RunInterval == other.RunInterval &&
                    DeleteBackupsWhenOlderThan == other.DeleteBackupsWhenOlderThan &&
@@ -134,6 +140,7 @@ partial class Program
             hashCode.Add(SuffixWhenBackupNotChanged);
             hashCode.Add(PreserveFolderInArchiveStrategy);
             hashCode.Add(BackupFileInUseStrategy);
+            hashCode.Add(LocalToRemoteOperationStrategy);
             hashCode.Add(RunOnce);
             hashCode.Add(RunInterval);
             hashCode.Add(DeleteBackupsWhenOlderThan);

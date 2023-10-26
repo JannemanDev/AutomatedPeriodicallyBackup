@@ -1,6 +1,7 @@
 {
   "DefaultFolderSettings": {
-    "FilePattern": "*",
+    "FilePatterns": [ "*" ],
+    "IgnoreFilePatterns": [ ],
     "IncludeSubFolders": "true",
     "MinFileSize": 0,
     "MaxFileSize": 9223372036854775807,
@@ -15,7 +16,8 @@
     },
     {
       "Folder": "C:\\temp\\AutomatedPeriodicallyBackup\\Input5",
-      "FilePattern": "*.xlsx",
+      "FilePatterns": [ "*.xlsx", "*.docx" ],
+      "IgnoreFilePatterns": [ "test2*.*" ],
       "IncludeSubFolders": "false",
       "MinFileSize": 0,
       "MaxFileSize": 25000,
@@ -27,13 +29,14 @@
       "Folder": "C:\\temp\\AutomatedPeriodicallyBackup\\Input2\\Lingo\\woordenlijsten"
     }
   ],
-  "LocalBackupFolder": "C:\\temp\\AutomatedPeriodicallyBackup\\Output2",
+  "LocalBackupFolder": "C:\\temp\\AutomatedPeriodicallyBackup\\Output",
   "RemoteBackupFolder": "C:\\temp\\AutomatedPeriodicallyBackup\\RemoteNAS",
   "BackupNotChangedStrategy": "Keep",
   "PrefixBackupFilename": "backup",
   "SuffixWhenBackupNotChanged": "-same",
   "PreserveFolderInArchiveStrategy": "FullPath",
   "BackupFileInUseStrategy": "TryByMakingCopy",
+  "LocalToRemoteOperationStrategy": "MoveBackups",
   "RunOnce": false,
   "RunInterval": "00:00:00:10",
   "DeleteBackupsWhenOlderThan": "00:00:00:30",

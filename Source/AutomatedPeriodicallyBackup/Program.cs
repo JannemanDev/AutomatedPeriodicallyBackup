@@ -56,15 +56,13 @@ partial class Program
         CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
         do
         {
+            DefaultLogging();
+
             Settings? previousSettings;
             previousSettings = settings?.Clone();
-            //int? ps = previousSettings?.GetHashCode();
-            //int? s = settings?.GetHashCode();
             settings = ReadSettings(settingsFilename);
-            //ps = previousSettings?.GetHashCode();
-            //s = settings?.GetHashCode();
+
             InitLogging(settingsFilename);
-            
 
             if (!ReferenceEquals(previousSettings, null) && settings != previousSettings) Log.Information($"Settings in {settingsFilename} changed... reloading settings!");
 
@@ -171,51 +169,47 @@ partial class Program
                     string previousCompleteLocalBackupFilename = SearchPreviousCompleteBackup(FolderProperties.CreateFromFolder(settings.LocalBackupFolder), searchArchivePattern, 1);
                     CompareBackups(newLocalBackupFilename, previousCompleteLocalBackupFilename);
 
-                    // Check if RemoteBackupFolder is available
-                    if (!string.IsNullOrEmpty(settings.RemoteBackupFolder) && Directory.Exists(settings.RemoteBackupFolder))
+                    List<string> allBackups;
+                    List<FolderProperties> backupFolders = new List<FolderProperties>() { FolderProperties.CreateFromFolder(settings.LocalBackupFolder) };
+
+                    if (settings.LocalToRemoteOperationStrategy != LocalToRemoteOperationStrategy.None)
                     {
-                        string latestCompleteRemoteBackupFilename = SearchPreviousCompleteBackup(FolderProperties.CreateFromFolder(settings.RemoteBackupFolder), searchArchivePattern, 0);
-                        string oldestLocalBackupFilename = GetFilesFromFolder(SortDirection.FromOldestToNewest, FolderProperties.CreateFromFolder(settings.LocalBackupFolder)).FirstOrDefault("");
-                        CompareBackups(oldestLocalBackupFilename, latestCompleteRemoteBackupFilename);
-
-                        // Get all archive files from both local and remote folders
-                        List<string> allBackups = GetFilesFromFolders(SortDirection.FromNewestToOldest, FolderProperties.CreateFromFolder(settings.LocalBackupFolder), FolderProperties.CreateFromFolder(settings.RemoteBackupFolder));
-                        RenumberFiles(allBackups, 0, settings.PrefixBackupFilename, settings.SuffixWhenBackupNotChanged);
-
-                        // Move all archive files from the local folder to the remote folder
-                        MoveFilesToFolder(GetFilesFromFolders(FolderProperties.CreateFromFolder(settings.LocalBackupFolder)), settings.RemoteBackupFolder);
-
-                        List<string> allRemoteBackups = GetFilesFromFolders(SortDirection.FromNewestToOldest, FolderProperties.CreateFromFolder(settings.RemoteBackupFolder));
-                        
-                        // Delete old backups
-                        List<BackupInfo> tooOldRemoteBackups = allRemoteBackups
-                                   .Skip(settings.MinimumBackupsToKeep)
-                                   .Select(backup => new BackupInfo
-                                   {
-                                       Filename = backup,
-                                       Age = FileAgeSinceLastModification(backup)
-                                   })
-                                   .Where(info => info.Age > settings.DeleteBackupsWhenOlderThan)
-                                   .ToList();
-
-                        if (tooOldRemoteBackups.Any())
+                        // Check if RemoteBackupFolder is available
+                        if (!string.IsNullOrEmpty(settings.RemoteBackupFolder) && Directory.Exists(settings.RemoteBackupFolder))
                         {
-                            Log.Information($"Found {tooOldRemoteBackups.Count} backup(s) which are older than {FormatTimeSpan(settings.DeleteBackupsWhenOlderThan)}:");
+                            backupFolders.Add(FolderProperties.CreateFromFolder(settings.RemoteBackupFolder));
 
-                            tooOldRemoteBackups.ForEach(f =>
+                            string latestCompleteRemoteBackupFilename = SearchPreviousCompleteBackup(FolderProperties.CreateFromFolder(settings.RemoteBackupFolder), searchArchivePattern, 0);
+                            string oldestLocalBackupFilename = GetFilesFromFolder(SortDirection.FromOldestToNewest, FolderProperties.CreateFromFolder(settings.LocalBackupFolder)).FirstOrDefault("");
+                            CompareBackups(oldestLocalBackupFilename, latestCompleteRemoteBackupFilename);
+
+                            // Get all archive files from both local and remote folders
+                            allBackups = GetFilesFromFolders(SortDirection.FromNewestToOldest, backupFolders);
+                            RenumberFiles(allBackups, 0, settings.PrefixBackupFilename, settings.SuffixWhenBackupNotChanged);
+
+                            switch (settings.LocalToRemoteOperationStrategy)
                             {
-                                TimeSpan delta = f.Age - settings.DeleteBackupsWhenOlderThan;
-                                Log.Information($" Deleting an too old backup which is {FormatTimeSpan(delta)} too old:");
-                                Log.Information($"  \"{f.Filename}\" is {FormatTimeSpan(f.Age)} old");
-
-                                File.Delete(f.Filename);
-                            });
+                                case LocalToRemoteOperationStrategy.None:
+                                    break;
+                                case LocalToRemoteOperationStrategy.MoveBackups:
+                                    // Move all archive files from the local folder to the remote folder
+                                    DoActionForFilesToFolder(GetFilesFromFolders(FolderProperties.CreateFromFolder(settings.LocalBackupFolder)), settings.RemoteBackupFolder, FileOperation.Move);
+                                    break;
+                                //case LocalToRemoteOperationStrategy.CopyBackups:
+                                //    // Copy all archive files from the local folder to the remote folder
+                                //    DoActionForFilesToFolder(GetFilesFromFolders(FolderProperties.CreateFromFolder(settings.LocalBackupFolder)), settings.RemoteBackupFolder, FileOperation.Copy);
+                                //    break;
+                                default:
+                                    throw new Exception($"LocalToRemoteOperationStrategy {settings.LocalToRemoteOperationStrategy} not implemented in {MethodBase.GetCurrentMethod().Name}!");
+                            }
+                        }
+                        else
+                        {
+                            Log.Warning($"RemoteBackupFolder \"{settings.RemoteBackupFolder}\" is currently not available. Skipping remote operations.");
                         }
                     }
-                    else
-                    {
-                        Log.Warning($"RemoteBackupFolder \"{settings.RemoteBackupFolder}\" is currently not available. Skipping remote operations.");
-                    }
+
+                    DeleteOldBackups(backupFolders);
                 }
                 else
                 {
@@ -226,6 +220,36 @@ partial class Program
             {
                 Log.Error($"Another instance is already running with the same LocalBackupFolder \"{settings.LocalBackupFolder}\" and/or RemoteBackupFolder \"{settings.RemoteBackupFolder}\".");
             }
+        }
+    }
+
+    private static void DeleteOldBackups(List<FolderProperties> backupFolders)
+    {
+        List<string> allBackups = GetFilesFromFolders(SortDirection.FromNewestToOldest, backupFolders);
+
+        // Delete old backups
+        List<BackupInfo> tooOldRemoteBackups = allBackups
+                   .Skip(settings.MinimumBackupsToKeep)
+                   .Select(backup => new BackupInfo
+                   {
+                       Filename = backup,
+                       Age = FileAgeSinceLastModification(backup)
+                   })
+                   .Where(info => info.Age > settings.DeleteBackupsWhenOlderThan)
+                   .ToList();
+
+        if (tooOldRemoteBackups.Any())
+        {
+            Log.Information($"Found {tooOldRemoteBackups.Count} backup(s) which are older than the specified DeleteBackupsWhenOlderThan setting of {FormatTimeSpan(settings.DeleteBackupsWhenOlderThan)}:");
+
+            tooOldRemoteBackups.ForEach(f =>
+            {
+                TimeSpan delta = f.Age - settings.DeleteBackupsWhenOlderThan;
+                Log.Information($" Deleting an backup which is {FormatTimeSpan(delta)} too old:");
+                Log.Information($"  \"{f.Filename}\" is {FormatTimeSpan(f.Age)} old");
+
+                File.Delete(f.Filename);
+            });
         }
     }
 
@@ -374,13 +398,29 @@ partial class Program
     {
         SearchOption searchOption = (bool)folderPath.IncludeSubFolders! ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
 
-        List<string> allFiles = Directory.GetFiles(folderPath.Folder, folderPath.FilePattern!, searchOption)
-            .Where(f =>
-            {
-                long fileSize = FileSize(f);
-                return fileSize >= folderPath.MinFileSize && fileSize <= folderPath.MaxFileSize;
-            })
-            .ToList();
+        List<string> allFiles = new();
+        foreach (var filePattern in folderPath.FilePatterns)
+        {
+            allFiles.AddRange(Directory.GetFiles(folderPath.Folder, filePattern!, searchOption)
+                .Where(f =>
+                {
+                    long fileSize = FileSize(f);
+                    return fileSize >= folderPath.MinFileSize && fileSize <= folderPath.MaxFileSize;
+                }));
+        }
+
+        List<string> ignoreFiles = new();
+        foreach (var ignoreFilePattern in folderPath.IgnoreFilePatterns)
+        {
+            ignoreFiles.AddRange(Directory.GetFiles(folderPath.Folder, ignoreFilePattern!, searchOption)
+                .Where(f =>
+                {
+                    long fileSize = FileSize(f);
+                    return fileSize >= folderPath.MinFileSize && fileSize <= folderPath.MaxFileSize;
+                }).Select(f => NormalizeFilename(f)));
+        }
+
+        allFiles = allFiles.Where(f => !ignoreFiles.Contains(NormalizeFilename(f))).ToList();
 
         if (sortDirection != SortDirection.None) SortFiles(allFiles, sortDirection);
 
@@ -463,12 +503,22 @@ partial class Program
             : file2.CompareTo(file1));
     }
 
-    static void MoveFilesToFolder(List<string> archiveFiles, string newFolder)
+    static void DoActionForFilesToFolder(List<string> archiveFiles, string newFolder, FileOperation fileOperation)
     {
         foreach (string archiveFile in archiveFiles)
         {
             string remoteFilePath = Path.Combine(newFolder, Path.GetFileName(archiveFile));
-            File.Move(archiveFile, remoteFilePath);
+            switch (fileOperation)
+            {
+                case FileOperation.Move:
+                    File.Move(archiveFile, remoteFilePath);
+                    break;
+                case FileOperation.Copy:
+                    File.Copy(archiveFile, remoteFilePath);
+                    break;
+                default:
+                    throw new Exception($"FileOperation {fileOperation} not implemented in {MethodBase.GetCurrentMethod().Name}!");
+            }
         }
     }
 
